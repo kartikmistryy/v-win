@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Bell, ChevronDown, FlaskConical, Home, KanbanSquare, PlusCircle, RotateCcw, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { PERSONAS, ROLES } from "@/lib/masters";
@@ -11,10 +11,10 @@ import { Avatar, Logo, Toasts, toast } from "./ui";
 
 export const dealHref = (id: string) => `/deal/?id=${encodeURIComponent(id)}`;
 
+const noop = () => () => {};
+/** false during static prerender, true in the browser (localStorage is available). */
 function useHydrated() {
-  const [h, setH] = useState(false);
-  useEffect(() => setH(true), []);
-  return h;
+  return useSyncExternalStore(noop, () => true, () => false);
 }
 
 export default function Shell({ children }: { children: React.ReactNode }) {
