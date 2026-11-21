@@ -16,7 +16,7 @@ const blankContact = (): Contact => ({ id: uid("c"), name: "", role: "", phone: 
 export default function NewLeadPage() {
   const { role, deals, createLead } = useStore();
   const router = useRouter();
-  const [c, setC] = useState({ clientName: "", gst: "", customerType: "Enterprise", channel: "Work", subChannel: "Corporate office", city: "Mumbai", leadSource: "Referral" });
+  const [c, setC] = useState({ clientName: "", gst: "", customerType: "Enterprise", channel: "Work", subChannel: "Corporate", city: "Mumbai", leadSource: "Referral" });
   const [contacts, setContacts] = useState<Contact[]>([blankContact()]);
   const [sites, setSites] = useState<Site[]>([blankSite({ name: "Site 1" })]);
   const [ackDup, setAckDup] = useState(false);

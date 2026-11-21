@@ -1,5 +1,6 @@
 // Fictional seed data so the pipeline looks alive. All client names are made up.
-import { minServiceCharge, PERSONAS } from "./masters";
+import { COMPANIES, JUNIORS, minServiceCharge, PERSONAS } from "./masters";
+import { estimateFootfall } from "./sizing";
 import { addDays, uid } from "./format";
 import type { ActivityEntry, Deal, Gate, GateNo, MachineType, Role, Site } from "./types";
 
@@ -19,18 +20,19 @@ interface SeedSpec {
 }
 
 const SPECS: SeedSpec[] = [
-  { n: 1, client: "Northwind Tech Park", city: "Bengaluru", zone: "South 1", channel: "Work", sub: "IT park", customerType: "Enterprise", stage: 1, sites: [["Tower A lobby", 3, "TCN", true]], proposed: 6500, daysAgo: 1 },
+  { n: 1, client: "Northwind Tech Park", city: "Bengaluru", zone: "South 1", channel: "Work", sub: "Corporate", customerType: "Enterprise", stage: 1, sites: [["Tower A lobby", 3, "TCN", true]], proposed: 6500, daysAgo: 1 },
   { n: 2, client: "Skyline Hospital", city: "Pune", zone: "West", channel: "Healthcare", sub: "Hospital", customerType: "Mid-market", stage: 2, sites: [["OPD waiting hall", 2, "Seaga", false], ["Staff canteen", 1, "XY", false]], proposed: 7800, daysAgo: 4 },
   {
     n: 3, client: "Metro Line 3 Stations", city: "Mumbai", zone: "West", channel: "Travel", sub: "Metro", customerType: "Government", stage: 3,
     sites: [["BKC station", 4, "ICM", true], ["Worli station", 3, "ICM", true]], proposed: 9200, daysAgo: 9,
     tweak: (d, now) => { d.productMixSubmittedAt = addDays(now, -4); },
   },
-  { n: 4, client: "Greenfield University", city: "Chennai", zone: "South 2", channel: "Education", sub: "College", customerType: "Mid-market", stage: 4, sites: [["Library block", 2, "TCN", true], ["Hostel B", 2, "TCN", false]], proposed: 5200, daysAgo: 12 },
+  { n: 4, client: "Greenfield University", city: "Chennai", zone: "South 2", channel: "Education", sub: "University", customerType: "Mid-market", stage: 4, sites: [["Library block", 2, "TCN", true], ["Hostel B", 2, "TCN", false]], proposed: 5200, daysAgo: 12 },
   {
-    n: 5, client: "Apex Manufacturing", city: "Ahmedabad", zone: "West", channel: "Work", sub: "Manufacturing", customerType: "Enterprise", stage: 6,
+    n: 5, client: "Apex Manufacturing", city: "Ahmedabad", zone: "West", channel: "Work", sub: "Onsite", customerType: "Enterprise", stage: 6,
     sites: [["Plant 1 shop floor", 5, "Seaga", false]], proposed: 6400, daysAgo: 18,
-    tweak: (d, now) => { setGate(d, 2, "cleared", "Operations", now); d.ops = { route: "Route W-14 (Naroda)", manpower: 2, machines: 5, goLiveDate: addDays(now, 21) }; },
+    // cleared by a Junior → Senior Operations sees "Review …" in their tasks
+    tweak: (d, now) => { setGate(d, 2, "cleared", "Operations", now, { decidedBy: JUNIORS.Operations, decidedLevel: "Junior" }); d.ops = { route: "Route W-14 (Naroda)", manpower: 2, machines: 5, goLiveDate: addDays(now, 21) }; },
   },
   {
     n: 6, client: "Harbour Airport T2", city: "Mumbai", zone: "West", channel: "Travel", sub: "Airport", customerType: "Enterprise", stage: 8,
@@ -42,7 +44,7 @@ const SPECS: SeedSpec[] = [
     },
   },
   {
-    n: 7, client: "Lotus Corporate Tower", city: "Delhi NCR", zone: "North", channel: "Work", sub: "Corporate office", customerType: "Enterprise", stage: 10,
+    n: 7, client: "Lotus Corporate Tower", city: "Delhi NCR", zone: "North", channel: "Work", sub: "Corporate", customerType: "Enterprise", stage: 10,
     sites: [["Floors 3–8 pantry", 4, "TCN", true]], proposed: 6800, daysAgo: 40,
     tweak: (d, now) => { d.agreements = [1, 2].map((v) => ({ version: v, fileName: `Lotus_MSA_v${v}.pdf`, approvedTermsStamp: "₹6,800/machine/month · 4 machines · go-live as per Gate 2", signed: false, uploadedAt: addDays(now, -6 + v * 2), uploadedBy: PERSONAS.Legal.name })); },
   },
@@ -52,7 +54,7 @@ const SPECS: SeedSpec[] = [
     tweak: (d) => { d.sites[0].deployment = { installed: true, configured: true, stocked: false, cashlessTested: false }; },
   },
   {
-    n: 9, client: "Sunrise IT Campus", city: "Bengaluru", zone: "South 1", channel: "Work", sub: "IT park", customerType: "Enterprise", stage: 13,
+    n: 9, client: "Sunrise IT Campus", city: "Bengaluru", zone: "South 1", channel: "Work", sub: "Hybrid", customerType: "Enterprise", stage: 13,
     sites: [["Block C cafeteria", 4, "Seaga", true]], proposed: 6300, daysAgo: 70,
     tweak: (d, now) => {
       d.hypercareStart = addDays(now, -17);
@@ -63,12 +65,12 @@ const SPECS: SeedSpec[] = [
     },
   },
   {
-    n: 10, client: "Chennai Central Mall", city: "Chennai", zone: "South 2", channel: "Entertainment & Leisure", sub: "Mall", customerType: "Mid-market", stage: 14,
+    n: 10, client: "Chennai Central Mall", city: "Chennai", zone: "South 2", channel: "Entertainment & Leisure", sub: "Shopping mall", customerType: "Mid-market", stage: 14,
     sites: [["Food court entry", 3, "TCN", true]], proposed: 7900, daysAgo: 95,
     tweak: (d, now) => { d.hypercareStart = addDays(now, -32); d.handover.Mobilisation = { by: PERSONAS.Mobilisation.name, at: addDays(now, -1) }; },
   },
   {
-    n: 11, client: "Ridgeview Residency", city: "Pune", zone: "West", channel: "Residential", sub: "Gated society", customerType: "SME", stage: 14,
+    n: 11, client: "Ridgeview Residency", city: "Pune", zone: "West", channel: "Residential", sub: "Housing society", customerType: "SME", stage: 14,
     sites: [["Clubhouse", 2, "XY", false]], proposed: 8100, daysAgo: 120,
     tweak: (d, now) => {
       d.hypercareStart = addDays(now, -45);
@@ -99,6 +101,47 @@ export function blankSite(p: Partial<Site> = {}): Site {
     productLines: [],
     deployment: { installed: false, configured: false, stocked: false, cashlessTested: false },
     ...p,
+  };
+}
+
+/** One client-portal lead waiting for Senior BD review. */
+function portalLead(now: string): Deal {
+  const c = COMPANIES.find((x) => x.name.startsWith("Indigo"))!;
+  const values = { members: 2 };
+  const { daily, monthly } = estimateFootfall("Entertainment & Leisure", "Fitness centre", values);
+  const locations = ["Bengaluru", "Mumbai"];
+  const people = [["Shreya Kulkarni", "COO", "Bengaluru"], ["Manav Shah", "Facilities Manager", "Mumbai"], ["Leena D'Souza", "Front-desk Lead", "Bengaluru"]];
+  return {
+    id: "VW-2026-0012",
+    client: {
+      id: uid("cl"),
+      name: c.name,
+      gst: c.offices.find((o) => o.city === locations[0])!.gstin,
+      customerType: c.customerType,
+      contacts: people.map(([name, role, city], i) => ({ id: uid("c"), name, role, city, tier: ["Decision-maker", "Manager", "Coordinator"][i], phone: `+91 98450 2${i}${i}${i}${i}`, email: `${name.split(" ")[0].toLowerCase()}@indigofitness.in` })),
+    },
+    ownerName: "Unassigned",
+    channel: "Entertainment & Leisure",
+    subChannel: "Fitness centre",
+    zone: "South 1",
+    city: locations[0],
+    leadSource: "Client portal",
+    locations,
+    sizing: { values, dailyCalc: daily, monthlyCalc: monthly, daily, monthly, edited: false },
+    intake: { status: "pending", submittedAt: addDays(now, -0.2) },
+    currentStage: 1,
+    status: "Open",
+    sites: locations.map((city) => blankSite({ name: `${city} office`, address: city, footfall: Math.round(daily / locations.length) })),
+    stageDone: {},
+    viability: { minimum: 0, proposed: 0, brandingOffset: 0 },
+    gates: emptyGates(),
+    legalLocked: false,
+    agreements: [],
+    hypercare: [],
+    handover: {},
+    documents: [],
+    comments: [],
+    createdAt: addDays(now, -0.2),
   };
 }
 
@@ -191,5 +234,8 @@ export function buildSeed(): { deals: Deal[]; activity: ActivityEntry[] } {
     if (s >= 9) push("BD", "Recorded Gate 4 = Accept", addDays(created, 12));
     if (s >= 12) push("Legal", "Uploaded signed agreement", addDays(created, 20));
   }
+  const p = portalLead(realNow);
+  deals.push(p);
+  activity.push({ id: uid("a"), dealId: p.id, user: `${p.client.contacts[0].name} (client portal)`, role: "BD", action: "Submitted lead via client portal", at: p.createdAt });
   return { deals, activity: activity.sort((a, b) => b.at.localeCompare(a.at)) };
 }

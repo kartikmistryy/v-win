@@ -5,14 +5,16 @@ import { Suspense, useState } from "react";
 import { ArrowLeft, Building2, MapPin, ShieldAlert, User } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { GATES } from "@/lib/masters";
-import { deriveTemperature, totalMachines } from "@/lib/rules";
+import { canReopenGate, canReviewGate, deriveTemperature, totalMachines } from "@/lib/rules";
+import { answerLabel, SIZING } from "@/lib/sizing";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import type { GateNo } from "@/lib/types";
 import StageRail from "@/components/StageRail";
 import StageActions from "@/components/StageActions";
 import GatePanel from "@/components/GatePanel";
 import DealTabs from "@/components/DealTabs";
-import { Empty, GateDiamond, StatusPill, TempChip } from "@/components/ui";
+import { Empty, GateDiamond, showResult, StatusPill, TempChip } from "@/components/ui";
+import type { Deal, Gate } from "@/lib/types";
 
 export default function DealPage() {
   return (
@@ -53,6 +55,7 @@ function DealRoom() {
             </h1>
             <TempChip t={temp} />
             <StatusPill s={d.status} />
+            {d.intake?.status === "pending" && <span className="chip bg-blue-50 text-blue-700">Client lead · pending review</span>}
             {d.gates.some((g) => g.override) && (
               <span className="chip bg-purple-100 text-purple-700">
                 <ShieldAlert size={11} /> Override
@@ -112,14 +115,24 @@ function DealRoom() {
                 {g.decidedAt && (
                   <div className="mt-2 rounded-lg bg-surface px-2.5 py-2 text-xs">
                     <div>
-                      <b>{g.decidedBy}</b> · {fmtDateTime(g.decidedAt)}
+                      <b>{g.decidedBy}</b>
+                      {g.decidedLevel === "Junior" && <span className="text-charcoal/50"> (Junior)</span>} · {fmtDateTime(g.decidedAt)}
                     </div>
                     {g.reasonCode && <div className="text-charcoal/70">Reason: {g.reasonCode}</div>}
                     {g.comment && <div className="text-charcoal/70">“{g.comment}”</div>}
                     {g.override && <div className="mt-1 font-bold text-purple-700">⚑ Leadership override</div>}
                     {g.reopened && <div className="mt-1 font-bold text-amber-700">Re-opened after a change post Gate 4</div>}
+                    {g.reviewedBy && (
+                      <div className="mt-1 font-bold text-cleared">
+                        ✓ Reviewed by {g.reviewedBy} · {fmtDateTime(g.reviewedAt)}
+                      </div>
+                    )}
                   </div>
                 )}
+                {g.reopened && !g.decidedAt && (
+                  <div className="mt-2 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-800">Re-opened{g.comment ? ` — “${g.comment}”` : ""}</div>
+                )}
+                <GateReview d={d} g={g} />
                 {canAct && (
                   <button
                     className={`mt-2 w-full ${role === "Leadership" ? "btn border border-purple-300 bg-purple-50 text-purple-800" : "btn-primary"}`}
@@ -132,10 +145,12 @@ function DealRoom() {
               </div>
             );
           })}
+          {d.sizing && <SizingCard d={d} />}
           <div className="card p-3.5 text-sm">
             <div className="mb-1 text-xs font-black uppercase tracking-wide text-charcoal/50">Client contacts</div>
             {d.client.contacts.map((c) => (
               <div key={c.id} className="py-1">
+                {c.tier && <div className="text-[11px] font-bold uppercase tracking-wide text-brand-deep">{c.tier}{c.city ? ` · ${c.city}` : ""}</div>}
                 <b>{c.name}</b> <span className="text-charcoal/50">· {c.role}</span>
                 <div className="text-xs text-charcoal/60">
                   {c.phone} · {c.email}
@@ -143,11 +158,82 @@ function DealRoom() {
               </div>
             ))}
             <div className="mt-1 text-xs text-charcoal/50">GST {d.client.gst}</div>
+            {d.locations && <div className="text-xs text-charcoal/50">Locations: {d.locations.join(", ")}</div>}
           </div>
         </aside>
       </div>
 
       {panel && <GatePanel d={d} n={panel.n} mode={panel.mode} onClose={() => setPanel(null)} />}
+    </div>
+  );
+}
+
+/** Senior of the gate's function can endorse or re-open a Junior's decision. */
+function GateReview({ d, g }: { d: Deal; g: Gate }) {
+  const { role, level, reviewGate } = useStore();
+  const [reopening, setReopening] = useState(false);
+  const [note, setNote] = useState("");
+  if (level !== "Senior" || role !== GATES[g.no].owner || !canReviewGate(d, g.no)) return null;
+  const canReopen = canReopenGate(d, g.no);
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border border-dashed border-brand/40 p-2.5" data-testid={`review-${g.no}`}>
+      <div className="text-xs font-bold text-brand-deep">Senior review · decided by a Junior</div>
+      {reopening ? (
+        <>
+          <textarea className="input min-h-14 text-xs" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why are you re-opening it? (required)" />
+          <div className="flex gap-2">
+            <button className="btn-ghost flex-1 py-1.5" onClick={() => setReopening(false)}>
+              Cancel
+            </button>
+            <button className="btn flex-1 bg-amber-500 py-1.5 text-white" onClick={() => showResult(reviewGate(d.id, g.no, "reopen", note)) && setReopening(false)}>
+              Re-open gate
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="flex gap-2">
+          <button className="btn-green flex-1 py-1.5" onClick={() => showResult(reviewGate(d.id, g.no, "endorse", ""))}>
+            Endorse
+          </button>
+          {canReopen && (
+            <button className="btn-ghost flex-1 py-1.5" onClick={() => setReopening(true)}>
+              Re-open…
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SizingCard({ d }: { d: Deal }) {
+  const z = d.sizing!;
+  return (
+    <div className="card p-3.5 text-sm">
+      <div className="mb-2 text-xs font-black uppercase tracking-wide text-charcoal/50">Client footfall estimate</div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg bg-peach-soft p-2">
+          <div className="text-xs text-charcoal/60">Daily</div>
+          <div className="text-lg font-black">{z.daily.toLocaleString("en-IN")}</div>
+        </div>
+        <div className="rounded-lg bg-peach-soft p-2">
+          <div className="text-xs text-charcoal/60">Monthly</div>
+          <div className="text-lg font-black">{z.monthly.toLocaleString("en-IN")}</div>
+        </div>
+      </div>
+      {z.edited && (
+        <div className="mt-1.5 text-xs font-bold text-amber-700">
+          Edited by client · our estimate was {z.dailyCalc.toLocaleString("en-IN")}/day, {z.monthlyCalc.toLocaleString("en-IN")}/month
+        </div>
+      )}
+      <dl className="mt-2 space-y-0.5 text-xs">
+        {(SIZING[d.subChannel]?.fields ?? []).map((f) => (
+          <div key={f.key} className="flex justify-between gap-2">
+            <dt className="text-charcoal/60">{f.label}</dt>
+            <dd className="font-bold">{f.key in z.values ? answerLabel(d.subChannel, f.key, z.values[f.key]) : "—"}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

@@ -1,11 +1,13 @@
 "use client";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { GATES, PERSONAS, ROLES, STAGES } from "./masters";
+import { GATES, JUNIORS, PERSONAS, personName, ROLES, STAGES } from "./masters";
 import { demoNow, fmtDate, inr, uid } from "./format";
 import {
   allSitesDeployed,
   canDecideGate,
+  canReopenGate,
+  canReviewGate,
   gate,
   gate1Block,
   gateLabel,
@@ -21,10 +23,13 @@ import type {
   Deal,
   DeployKey,
   GateNo,
+  Intake,
+  Level,
   MachineType,
   Notification,
   OpsReadiness,
   ProductLine,
+  Sizing,
   Role,
   Site,
   TechReadiness,
@@ -44,6 +49,8 @@ export interface NewLeadInput {
   city: string;
   leadSource: string;
   sites: Site[];
+  locations?: string[];
+  sizing?: Sizing;
 }
 
 export interface GateDecision {
@@ -58,15 +65,19 @@ export interface GateDecision {
 
 interface State {
   role: Role;
+  level: Level;
   dayOffset: number;
   deals: Deal[];
   activity: ActivityEntry[];
   notifications: Notification[];
-  setRole: (r: Role) => void;
+  setRole: (r: Role, level?: Level) => void;
   simulateDays: (n: number) => void;
   reset: () => void;
   now: () => Date;
   createLead: (x: NewLeadInput) => string;
+  submitClientLead: (x: NewLeadInput) => string;
+  reviewIntake: (id: string, accept: boolean, note: string) => Result;
+  reviewGate: (id: string, n: GateNo, action: "endorse" | "reopen", comment: string) => Result;
   completeProfile: (id: string) => Result;
   uploadSurvey: (id: string, fileName: string, sites: Site[]) => Result;
   submitProductMix: (id: string, lines: Record<string, ProductLine[]>, proposed: number) => Result;
@@ -96,7 +107,7 @@ const fresh = () => {
 export const useStore = create<State>()(
   persist(
     (set, get) => {
-      const me = () => ({ role: get().role, name: PERSONAS[get().role].name });
+      const me = () => ({ role: get().role, level: get().level, name: personName(get().role, get().level) });
       const nowIso = () => get().now().toISOString();
 
       const log = (dealId: string, action: string, extra: Partial<ActivityEntry> = {}) => {
@@ -129,6 +140,7 @@ export const useStore = create<State>()(
         if (!d) return { ok: false, msg: "Deal not found." };
         if (d.status === "Lost" || d.status === "Live") return { ok: false, msg: `Deal is ${d.status} and read-only.` };
         if (!roles.includes(get().role)) return { ok: false, msg: `Only ${roles.join(" / ")} can do this.` };
+        if (d.intake?.status === "pending") return { ok: false, msg: "This client lead is waiting for a Senior BD to accept it into the pipeline." };
         if (stage !== undefined) {
           const ok = Array.isArray(stage) ? stage.includes(d.currentStage) : d.currentStage === stage;
           if (!ok) return { ok: false, msg: `Deal is not at the right stage for this action.` };
@@ -137,37 +149,21 @@ export const useStore = create<State>()(
       };
       const isRes = (x: Result | Deal): x is Result => "ok" in x;
 
-      /** Move forward after a gate (or override) clears. */
-      const afterClear = (d: Deal, n: GateNo) => {
-        if (n === 1 && d.currentStage === 4) d.currentStage = 5;
-        if ((n === 2 || n === 3) && d.currentStage === 6 && gate(d, 2).state === "cleared" && gate(d, 3).state === "cleared") {
-          d.currentStage = 8;
-          d.gates[3].state = "waiting";
-        }
-        d.gates[n - 1].reopened = false;
-        if (d.legalLocked && [1, 2, 3].every((k) => gate(d, k as GateNo).state === "cleared")) d.legalLocked = false;
-      };
-
-      return {
-        role: "BD",
-        ...fresh(),
-        now: () => demoNow(get().dayOffset),
-        setRole: (r) => set({ role: r }),
-        simulateDays: (n) => set((s) => ({ dayOffset: s.dayOffset + n })),
-        reset: () => set({ ...fresh(), role: "BD" }),
-
-        createLead: (x) => {
+      const newDeal = (x: NewLeadInput, extra: { ownerName?: string; intake?: Intake } = {}) => {
           const max = get().deals.reduce((m, d) => Math.max(m, Number(d.id.slice(-4))), 0);
           const id = `VW-${get().now().getFullYear()}-${String(max + 1).padStart(4, "0")}`;
           const deal: Deal = {
             id,
             client: { id: uid("cl"), name: x.clientName.trim(), gst: x.gst.trim().toUpperCase(), customerType: x.customerType, contacts: x.contacts },
-            ownerName: me().name,
+            ownerName: extra.ownerName ?? me().name,
             channel: x.channel,
             subChannel: x.subChannel,
             zone: x.zone,
             city: x.city,
             leadSource: x.leadSource,
+            locations: x.locations,
+            sizing: x.sizing,
+            intake: extra.intake,
             currentStage: 1,
             status: "Open",
             sites: x.sites,
@@ -183,9 +179,91 @@ export const useStore = create<State>()(
             createdAt: nowIso(),
           };
           set((s) => ({ deals: [deal, ...s.deals] }));
-          log(id, "Created lead", { field: "stage", newValue: "1" });
+          if (!extra.intake) log(id, "Created lead", { field: "stage", newValue: "1" });
+          return id;
+      };
+
+      /** Move forward after a gate (or override) clears. */
+      const afterClear = (d: Deal, n: GateNo) => {
+        if (n === 1 && d.currentStage === 4) d.currentStage = 5;
+        if ((n === 2 || n === 3) && d.currentStage === 6 && gate(d, 2).state === "cleared" && gate(d, 3).state === "cleared") {
+          d.currentStage = 8;
+          d.gates[3].state = "waiting";
+        }
+        d.gates[n - 1].reopened = false;
+        if (d.legalLocked && [1, 2, 3].every((k) => gate(d, k as GateNo).state === "cleared")) d.legalLocked = false;
+      };
+
+      return {
+        role: "BD",
+        level: "Senior",
+        ...fresh(),
+        now: () => demoNow(get().dayOffset),
+        setRole: (r, level = "Senior") => set({ role: r, level: JUNIORS[r] ? level : "Senior" }),
+        simulateDays: (n) => set((s) => ({ dayOffset: s.dayOffset + n })),
+        reset: () => set({ ...fresh(), role: "BD", level: "Senior" }),
+
+        createLead: (x) => newDeal(x),
+
+        submitClientLead: (x) => {
+          const intake: Intake = { status: "pending", submittedAt: nowIso() };
+          const id = newDeal(x, { ownerName: "Unassigned", intake });
+          const at = nowIso();
+          // written directly: the client isn't a V-Win role, and every BD user must see it
+          set((s) => ({
+            activity: [{ id: uid("a"), dealId: id, user: `${x.contacts[0]?.name || "Client"} (client portal)`, role: "BD", action: "Submitted lead via client portal", field: "stage", newValue: "1", at }, ...s.activity],
+            notifications: [{ id: uid("n"), toRole: "BD", text: `New client-portal lead: ${x.clientName} — waiting for Senior BD review`, dealId: id, at, read: false }, ...s.notifications],
+          }));
           return id;
         },
+
+        reviewIntake: (id, accept, note) => {
+          const d0 = find(id);
+          if (!d0 || d0.intake?.status !== "pending") return { ok: false, msg: "This lead is not waiting for review." };
+          if (get().role !== "BD" || get().level !== "Senior") return { ok: false, msg: "Only a Senior BD can review client leads." };
+          if (!accept && !note.trim()) return { ok: false, msg: "Add a comment saying why the lead is rejected." };
+          mutate(id, (d) => {
+            d.intake = { ...d.intake!, status: accept ? "accepted" : "rejected", reviewedBy: me().name, reviewedAt: nowIso(), note: note.trim() || undefined };
+            if (accept) d.ownerName = me().name;
+            else d.status = "Lost";
+          });
+          log(id, accept ? "Accepted client lead into the pipeline" : "Rejected client lead", { field: "intake", oldValue: "pending", newValue: accept ? "accepted" : "rejected" });
+          return { ok: true, msg: accept ? "Lead accepted — you own it now · Stage 1 · Cold" : "Lead rejected and marked Lost" };
+        },
+
+        reviewGate: (id, n, action, comment) => {
+          const d0 = find(id);
+          if (!d0) return { ok: false, msg: "Deal not found." };
+          if (get().role !== GATES[n].owner || get().level !== "Senior") return { ok: false, msg: `Only a Senior in ${GATES[n].owner} can review this decision.` };
+          if (!canReviewGate(d0, n)) return { ok: false, msg: "There is no Junior decision to review on this gate." };
+          if (action === "reopen" && !canReopenGate(d0, n)) return { ok: false, msg: "Too late to re-open — the deal has moved past this point." };
+          if (action === "reopen" && !comment.trim()) return { ok: false, msg: "Add a comment saying why you are re-opening it." };
+          const at = nowIso();
+          mutate(id, (d) => {
+            const g = d.gates[n - 1];
+            if (action === "endorse") return void Object.assign(g, { reviewedBy: me().name, reviewedAt: at });
+            // Re-open: the gate waits again and the deal steps back to it; data is kept (BR-08 style)
+            d.gates[n - 1] = { no: n, state: "waiting", reopened: true, comment: comment.trim() };
+            if (n === 1) {
+              d.currentStage = 4;
+              d.gates[1] = { no: 2, state: "not_reached" };
+              d.gates[2] = { no: 3, state: "not_reached" };
+            }
+            if (n === 2 || n === 3) d.currentStage = 6;
+            if (n === 4) d.currentStage = 8;
+            else d.gates[3] = { no: 4, state: "not_reached" };
+            for (let k = d.currentStage; k <= 8; k++) d.stageDone[k] = false;
+            if (d.status === "On hold") d.status = "Open";
+          });
+          log(id, action === "endorse" ? `Senior review: endorsed ${gateLabel(n)}` : `Senior review: re-opened ${gateLabel(n)}`, {
+            field: `Gate ${n}`,
+            oldValue: d0.gates[n - 1].outcome ?? d0.gates[n - 1].state,
+            newValue: action === "endorse" ? "endorsed" : "waiting",
+          });
+          if (action === "reopen") notify([GATES[n].owner, "BD"], `${d0.client.name}: Senior re-opened ${gateLabel(n)} — “${comment.trim()}”`, id);
+          return { ok: true, msg: action === "endorse" ? "Decision endorsed" : `${gateLabel(n)} re-opened — deal is back at Stage ${find(id)!.currentStage === 6 ? "6–7" : find(id)!.currentStage}` };
+        },
+
 
         completeProfile: (id) => {
           const g = guard(id, ["BD"], 1);
@@ -273,7 +351,7 @@ export const useStore = create<State>()(
             if (x.ops) d.ops = x.ops;
             if (x.tech) d.tech = x.tech;
             const g = d.gates[n - 1];
-            Object.assign(g, { decidedBy: me().name, decidedRole: role, decidedAt: at, reasonCode: x.reasonCode, comment: x.comment, override: isOverride || undefined });
+            Object.assign(g, { decidedBy: me().name, decidedRole: role, decidedLevel: me().level, decidedAt: at, reasonCode: x.reasonCode, comment: x.comment, override: isOverride || undefined, reviewedBy: undefined, reviewedAt: undefined });
             if (x.decision === "clear" || isOverride) {
               g.state = "cleared";
               afterClear(d, n);
@@ -494,8 +572,8 @@ export const useStore = create<State>()(
       };
     },
     {
-      name: "vwin-demo-v1",
-      partialize: (s) => ({ role: s.role, dayOffset: s.dayOffset, deals: s.deals, activity: s.activity, notifications: s.notifications }),
+      name: "vwin-demo-v2",
+      partialize: (s) => ({ role: s.role, level: s.level, dayOffset: s.dayOffset, deals: s.deals, activity: s.activity, notifications: s.notifications }),
     },
   ),
 );

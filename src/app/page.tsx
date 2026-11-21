@@ -2,18 +2,18 @@
 import Link from "next/link";
 import { AlertTriangle, ArrowRight, CheckCircle2, Flame, Hourglass, Layers, Rocket } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { PERSONAS } from "@/lib/masters";
+import { PERSONAS, personName } from "@/lib/masters";
 import { deriveTemperature, tasksFor, totalMachines, waitingGates } from "@/lib/rules";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { dealHref } from "@/components/Shell";
 import { Avatar, Empty, GateDiamond } from "@/components/ui";
 
 export default function HomePage() {
-  const { role, deals, activity, now: nowFn } = useStore();
+  const { role, level, deals, activity, now: nowFn } = useStore();
   const now = nowFn();
   const p = PERSONAS[role];
   const active = deals.filter((d) => d.status !== "Lost" && d.status !== "Live");
-  const tasks = tasksFor(role, deals, now);
+  const tasks = tasksFor(role, deals, now, level);
   const hour = Number(now.toLocaleString("en-IN", { hour: "numeric", hour12: false, timeZone: "Asia/Kolkata" }));
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const atGate = active.filter((d) => waitingGates(d).length > 0);
@@ -31,9 +31,9 @@ export default function HomePage() {
         <div>
           <div className="text-sm font-bold text-charcoal/50">{fmtDate(now.toISOString())}</div>
           <h1 className="text-2xl font-black md:text-3xl">
-            {greet}, {p.name.split(" ")[0]} 👋
+            {greet}, {personName(role, level).split(" ")[0]} 👋
           </h1>
-          <p className="text-sm text-charcoal/60">You&apos;re acting as {p.title}.</p>
+          <p className="text-sm text-charcoal/60">You&apos;re acting as {p.title}{role !== "Leadership" && ` · ${level} (${level === "Senior" ? "approve + review" : "approve only"})`}.</p>
         </div>
         {role === "BD" && (
           <Link href="/new/" className="btn-primary">

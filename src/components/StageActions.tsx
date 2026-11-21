@@ -84,6 +84,7 @@ function Waiting({ who, children }: { who: string; children?: React.ReactNode })
 /* ---------- Stage 1 ---------- */
 function Stage1({ d, role }: { d: Deal; role: Role }) {
   const completeProfile = useStore((s) => s.completeProfile);
+  if (d.intake?.status === "pending") return <IntakeReview d={d} role={role} />;
   if (role !== "BD") return <Waiting who="Business Development">The client profile is being completed.</Waiting>;
   return (
     <div className="space-y-3">
@@ -93,6 +94,40 @@ function Stage1({ d, role }: { d: Deal; role: Role }) {
       <button className="btn-primary" onClick={() => showResult(completeProfile(d.id))}>
         <CheckCircle2 size={16} /> Profile complete → Stage 2
       </button>
+    </div>
+  );
+}
+
+/* ---------- Client-portal lead: Senior BD accepts or rejects ---------- */
+function IntakeReview({ d, role }: { d: Deal; role: Role }) {
+  const level = useStore((s) => s.level);
+  const deals = useStore((s) => s.deals);
+  const reviewIntake = useStore((s) => s.reviewIntake);
+  const [note, setNote] = useState("");
+  const dup = deals.find((x) => x.id !== d.id && x.client.name.toLowerCase() === d.client.name.toLowerCase() && x.city === d.city && x.client.gst === d.client.gst);
+  if (role !== "BD" || level !== "Senior")
+    return <Waiting who="a Senior in Business Development">This lead came from the client portal and must be accepted into the pipeline first.</Waiting>;
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-charcoal/70">
+        Submitted by the client on {fmtDateTime(d.intake!.submittedAt)}. Check the company, contacts and footfall estimate, then accept it (you become the owner) or reject it.
+      </p>
+      {dup && (
+        <p role="alert" className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <AlertTriangle size={16} className="shrink-0" /> Possible duplicate of {dup.id} ({dup.client.name}, {dup.city}, same GST).
+        </p>
+      )}
+      <Field label="Comment (required to reject)">
+        <textarea className="input min-h-16" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Visible on the deal record" />
+      </Field>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn-green" onClick={() => showResult(reviewIntake(d.id, true, note))} data-testid="accept-intake">
+          <CheckCircle2 size={16} /> Accept into pipeline
+        </button>
+        <button className="btn-red" onClick={() => showResult(reviewIntake(d.id, false, note))}>
+          Reject lead
+        </button>
+      </div>
     </div>
   );
 }

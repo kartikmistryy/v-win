@@ -1,7 +1,7 @@
 // Pure business rules (BR-01 … BR-15). No React, no store — easy to unit test.
 import { BRANDING_MIN_OFFSET, GATES, STAGES } from "./masters";
 import { addWorkingDays, daysBetween } from "./format";
-import type { Deal, GateNo, Role, Temperature } from "./types";
+import type { Deal, GateNo, Level, Role, Temperature } from "./types";
 
 export const gate = (d: Deal, n: GateNo) => d.gates[n - 1];
 export const gateLabel = (n: GateNo) => `Gate ${n} (${GATES[n].owner === "BD" ? "Business Development" : GATES[n].owner} · ${GATES[n].name})`;
@@ -119,6 +119,23 @@ export function canDecideGate(d: Deal, n: GateNo, role: Role): boolean {
   return gate(d, n).state === "waiting" && GATES[n].owner === role;
 }
 
+/** Senior review: a Junior's Clear / Reject / Gate 4 outcome that no Senior has endorsed or re-opened yet. */
+export function canReviewGate(d: Deal, n: GateNo): boolean {
+  const g = gate(d, n);
+  if (d.status === "Live" || (d.status === "Lost" && n !== 4)) return false;
+  return g.decidedLevel === "Junior" && !g.override && !g.reviewedBy && (g.state === "cleared" || g.state === "rejected" || g.outcome === "hold");
+}
+
+/** A cleared gate can be re-opened only until Legal starts work (BR-04 boundary). */
+export function canReopenGate(d: Deal, n: GateNo): boolean {
+  const g = gate(d, n);
+  if (!canReviewGate(d, n) || g.state !== "cleared") return false;
+  if (n === 4) return d.currentStage === 9 && d.agreements.length === 0;
+  return d.currentStage <= 8 && gate(d, 4).outcome !== "accept";
+}
+
+export const pendingIntake = (d: Deal) => d.intake?.status === "pending";
+
 export interface Task {
   dealId: string;
   client: string;
@@ -127,11 +144,17 @@ export interface Task {
 }
 
 /** "My tasks" — what this role must do now. */
-export function tasksFor(role: Role, deals: Deal[], now: Date): Task[] {
+export function tasksFor(role: Role, deals: Deal[], now: Date, level: Level = "Senior"): Task[] {
   const out: Task[] = [];
   for (const d of deals) {
-    if (d.status === "Lost" || d.status === "Live") continue;
     const t = (text: string, overdue = false) => out.push({ dealId: d.id, client: d.client.name, text, overdue });
+    if (level === "Senior")
+      for (const g of d.gates) if (GATES[g.no].owner === role && canReviewGate(d, g.no)) t(`Review ${g.decidedBy}'s decision on ${gateLabel(g.no)}`);
+    if (d.status === "Lost" || d.status === "Live") continue;
+    if (pendingIntake(d)) {
+      if (role === "BD" && level === "Senior") t("Review new client-portal lead");
+      continue;
+    }
     const s = d.currentStage;
     for (const g of waitingGates(d)) if (GATES[g.no].owner === role) t(`Decide ${gateLabel(g.no)}${g.reopened ? " — re-opened after a change" : ""}`);
     switch (role) {

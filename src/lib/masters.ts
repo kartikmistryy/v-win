@@ -1,16 +1,14 @@
-import type { GateNo, MachineType, Role, Temperature } from "./types";
+import type { GateNo, Level, MachineType, Role, Temperature } from "./types";
 
 // All masters are PLACEHOLDERS — the BRD lists them as open items for Vendiman to confirm.
 
 export const CHANNELS: Record<string, string[]> = {
-  Work: ["Corporate office", "Manufacturing", "IT park"],
-  Travel: ["Airport", "Railway", "Metro"],
-  Education: ["College", "School", "Coaching centre"],
-  Healthcare: ["Hospital", "Clinic"],
-  "Entertainment & Leisure": ["Mall", "Cinema", "Gym"],
-  "Places of Worship": ["Temple", "Gurudwara", "Church"],
-  Residential: ["Gated society", "Hostel"],
-  Others: ["Others"],
+  Work: ["Corporate", "Hybrid", "Onsite"],
+  Travel: ["Bus stand", "Metro", "Railway station", "Airport"],
+  Education: ["Government college", "Private college", "University", "School"],
+  Healthcare: ["Hospital", "Clinic", "Diagnostic centre / Lab"],
+  Residential: ["PG", "Housing society", "Hostel"],
+  "Entertainment & Leisure": ["Theatre", "Amusement park", "Shopping mall", "Cultural centre", "Fitness centre"],
 };
 
 export const ZONES = ["West", "South 1", "South 2", "North", "East"];
@@ -47,10 +45,11 @@ const MIN_TABLE: Record<string, number[]> = {
   Travel: [9000, 9500, 10000, 9000],
   Healthcare: [7000, 7500, 8000, 7000],
   Education: [5000, 5500, 6000, 5000],
-  Others: [7000, 7500, 8000, 7500],
 };
+// ponytail: Residential and Entertainment & Leisure have no confirmed row yet — they use this until Finance confirms.
+const MIN_FALLBACK = [7000, 7500, 8000, 7500];
 export function minServiceCharge(channel: string, customerType: string): number {
-  const row = MIN_TABLE[channel] ?? MIN_TABLE.Others;
+  const row = MIN_TABLE[channel] ?? MIN_FALLBACK;
   const i = Math.max(0, CUSTOMER_TYPES.indexOf(customerType));
   return row[i];
 }
@@ -86,6 +85,55 @@ export const PERSONAS: Record<Role, { name: string; title: string; color: string
   Leadership: { name: "Meera Nair", title: "Leadership (COO)", color: "#2E2F31" },
 };
 export const ROLES = Object.keys(PERSONAS) as Role[];
+
+/** PERSONAS above are the Senior (approve + review). Juniors can approve only. Leadership has no junior. */
+export const JUNIORS: Partial<Record<Role, string>> = {
+  BD: "Ishaan Verma",
+  Procurement: "Rhea Pillai",
+  Finance: "Kunal Bhatt",
+  Branding: "Tanya Malhotra",
+  Operations: "Arjun Patil",
+  Technology: "Dev Khanna",
+  Legal: "Sana Qureshi",
+  Mobilisation: "Nikhil Das",
+};
+export const personName = (role: Role, level: Level) => (level === "Junior" ? JUNIORS[role] : undefined) ?? PERSONAS[role].name;
+
+/* ---------- Client portal: fictional company directory (stands in for a GST lookup) ---------- */
+const STATE_CODE: Record<string, string> = {
+  Mumbai: "27", Pune: "27", Ahmedabad: "24", Bengaluru: "29", Hyderabad: "36",
+  Chennai: "33", Kochi: "32", "Delhi NCR": "07", Jaipur: "08", Kolkata: "19",
+};
+export interface Office { city: string; gstin: string }
+export interface Company { name: string; customerType: string; offices: Office[] }
+
+const co = (name: string, pan: string, customerType: string, cities: string[]): Company => ({
+  name,
+  customerType,
+  // one GSTIN per state: 2-digit state code + PAN + entity no. + Z + check char
+  offices: cities.map((city) => ({ city, gstin: `${STATE_CODE[city]}${pan}1Z5` })),
+});
+
+export const COMPANIES: Company[] = [
+  co("Aurora Infotech Pvt Ltd", "AAFCA4821K", "Enterprise", ["Bengaluru", "Hyderabad", "Pune", "Chennai"]),
+  co("Bluepeak Logistics Ltd", "AABCB7310L", "Mid-market", ["Mumbai", "Ahmedabad", "Delhi NCR"]),
+  co("Cedar Health Systems", "AACCC2290M", "Enterprise", ["Pune", "Mumbai", "Kochi"]),
+  co("Deccan Transit Corporation", "AAAGD5512N", "Government", ["Hyderabad", "Bengaluru"]),
+  co("Everline Education Trust", "AAATE8834P", "Mid-market", ["Chennai", "Kochi", "Bengaluru"]),
+  co("Falcon Aviation Services", "AABCF1147Q", "Enterprise", ["Mumbai", "Delhi NCR", "Kolkata", "Chennai"]),
+  co("Greenway Realty Ltd", "AADCG6603R", "SME", ["Pune", "Jaipur"]),
+  co("Horizon Cineplex Pvt Ltd", "AAECH3378S", "Mid-market", ["Mumbai", "Kolkata", "Hyderabad"]),
+  co("Indigo Fitness Clubs", "AAFCI9921T", "SME", ["Bengaluru", "Mumbai", "Delhi NCR"]),
+  co("Jade Retail Malls Ltd", "AABCJ4456U", "Enterprise", ["Ahmedabad", "Jaipur", "Delhi NCR", "Kolkata"]),
+  co("Kestrel Manufacturing Co.", "AACCK7782V", "Enterprise", ["Pune", "Ahmedabad"]),
+  co("Lumen Diagnostics Pvt Ltd", "AADCL2215W", "SME", ["Hyderabad", "Chennai", "Kochi"]),
+];
+
+export const CONTACT_TIERS = [
+  { tier: "Decision-maker", hint: "CXO / Head" },
+  { tier: "Manager", hint: "Admin / Facilities" },
+  { tier: "Coordinator", hint: "Day-to-day contact" },
+] as const;
 
 export interface StageMeta {
   no: number;

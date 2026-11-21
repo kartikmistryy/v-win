@@ -32,8 +32,9 @@ export default function DealCard({ d }: { d: Deal }) {
           <b className="text-charcoal">{totalMachines(d)}</b> machines
         </span>
       </div>
-      {(overdue || d.status !== "Open" || override || d.legalLocked) && (
+      {(overdue || d.status !== "Open" || override || d.legalLocked || d.intake?.status === "pending") && (
         <div className="mt-2.5 flex flex-wrap gap-1">
+          {d.intake?.status === "pending" && <span className="chip bg-blue-50 text-blue-700">Client lead · pending review</span>}
           {d.status !== "Open" && <StatusPill s={d.status} />}
           {d.status === "On hold" && d.gates[3].followUpDate && (
             <span className={`chip ${holdDue(d, now) ? "bg-red-100 text-rejected" : "bg-surface text-charcoal/70"}`}>

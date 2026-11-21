@@ -2,11 +2,11 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Bell, ChevronDown, FlaskConical, Home, KanbanSquare, PlusCircle, RotateCcw, Search } from "lucide-react";
+import { Bell, ChevronDown, ExternalLink, FlaskConical, Home, KanbanSquare, PlusCircle, RotateCcw, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { PERSONAS, ROLES } from "@/lib/masters";
+import { JUNIORS, PERSONAS, personName, ROLES } from "@/lib/masters";
 import { fmtDate, fmtDateTime } from "@/lib/format";
-import type { Role } from "@/lib/types";
+import type { Level, Role } from "@/lib/types";
 import { Avatar, Logo, Toasts, toast } from "./ui";
 
 export const dealHref = (id: string) => `/deal/?id=${encodeURIComponent(id)}`;
@@ -19,10 +19,24 @@ function useHydrated() {
 
 export default function Shell({ children }: { children: React.ReactNode }) {
   const hydrated = useHydrated();
+  const path = usePathname();
   if (!hydrated)
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Logo />
+      </div>
+    );
+  // Client portal: no internal nav, roles or demo controls
+  if (path.startsWith("/client"))
+    return (
+      <div className="min-h-screen">
+        <header className="border-b border-line bg-white">
+          <div className="mx-auto flex h-16 max-w-3xl items-center px-4">
+            <Logo />
+          </div>
+        </header>
+        <main className="mx-auto max-w-3xl px-4 py-6 md:py-10">{children}</main>
+        <Toasts />
       </div>
     );
   return (
@@ -42,6 +56,7 @@ const NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/pipeline/", label: "Pipeline", icon: KanbanSquare },
   { href: "/new/", label: "New lead", icon: PlusCircle, role: "BD" as Role },
+  { href: "/client/", label: "Client form", icon: ExternalLink, role: "BD" as Role },
 ];
 
 function useNav() {
@@ -62,6 +77,7 @@ function SideNav() {
       {nav.map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
+          target={href === "/client/" ? "_blank" : undefined}
           href={href}
           className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-bold transition ${
             isActive(path, href) ? "bg-peach text-brand-deep" : "text-charcoal/70 hover:bg-white hover:text-charcoal"
@@ -84,7 +100,7 @@ function BottomNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 flex border-t border-line bg-white md:hidden">
       {nav.map(({ href, label, icon: Icon }) => (
-        <Link key={href} href={href} className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold ${isActive(path, href) ? "text-brand" : "text-charcoal/60"}`}>
+        <Link key={href} href={href} target={href === "/client/" ? "_blank" : undefined} className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[11px] font-bold ${isActive(path, href) ? "text-brand" : "text-charcoal/60"}`}>
           <Icon size={20} />
           {label}
         </Link>
@@ -181,10 +197,13 @@ function SearchBox() {
 
 function RoleSwitcher() {
   const role = useStore((s) => s.role);
+  const level = useStore((s) => s.level);
   const setRole = useStore((s) => s.setRole);
   const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<Level>(level);
   const ref = useClickOutside(open, () => setOpen(false));
   const p = PERSONAS[role];
+  const name = personName(role, level);
   return (
     <div ref={ref} className="relative">
       <button
@@ -192,9 +211,9 @@ function RoleSwitcher() {
         data-testid="role-switcher"
         className="flex items-center gap-2 rounded-full bg-white/10 py-1 pl-1 pr-2.5 text-sm font-bold hover:bg-white/15"
       >
-        <Avatar name={p.name} role={role} size={28} />
+        <Avatar name={name} role={role} size={28} />
         <span className="hidden flex-col items-start leading-tight md:flex">
-          <span className="text-xs text-white/60">Acting as</span>
+          <span className="text-xs text-white/60">Acting as · {role === "Leadership" ? "Leadership" : level}</span>
           <span>{p.title}</span>
         </span>
         <ChevronDown size={16} />
@@ -202,23 +221,43 @@ function RoleSwitcher() {
       {open && (
         <div className="absolute right-0 top-12 w-72 overflow-hidden rounded-xl bg-white text-charcoal shadow-xl ring-1 ring-line">
           <div className="border-b border-line px-4 py-2.5 text-xs font-bold uppercase tracking-wide text-charcoal/50">Switch role (demo)</div>
-          {ROLES.map((r) => (
-            <button
-              key={r}
-              onClick={() => {
-                setRole(r);
-                setOpen(false);
-                toast.info(`Now acting as ${PERSONAS[r].name} — ${PERSONAS[r].title}`);
-              }}
-              className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-peach-soft ${r === role ? "bg-peach" : ""}`}
-            >
-              <Avatar name={PERSONAS[r].name} role={r} size={26} />
-              <span className="flex-1">
-                <span className="block font-bold">{PERSONAS[r].title}</span>
-                <span className="text-xs text-charcoal/50">{PERSONAS[r].name}</span>
-              </span>
-            </button>
-          ))}
+          <div className="grid grid-cols-2 gap-1 border-b border-line p-2" role="radiogroup" aria-label="Seniority">
+            {(["Senior", "Junior"] as Level[]).map((l) => (
+              <button
+                key={l}
+                role="radio"
+                aria-checked={pick === l}
+                onClick={() => setPick(l)}
+                className={`rounded-lg px-2 py-1.5 text-left text-xs font-bold ${pick === l ? "bg-charcoal text-white" : "text-charcoal/70 hover:bg-surface"}`}
+              >
+                {l}
+                <span className={`block font-normal ${pick === l ? "text-white/70" : "text-charcoal/50"}`}>{l === "Senior" ? "Approve + review" : "Approve only"}</span>
+              </button>
+            ))}
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {ROLES.filter((r) => pick === "Senior" || JUNIORS[r]).map((r) => {
+              const n = personName(r, pick);
+              const current = r === role && (pick === level || !JUNIORS[r]);
+              return (
+                <button
+                  key={r}
+                  onClick={() => {
+                    setRole(r, pick);
+                    setOpen(false);
+                    toast.info(`Now acting as ${n} — ${PERSONAS[r].title}${JUNIORS[r] ? ` (${pick})` : ""}`);
+                  }}
+                  className={`flex w-full items-center gap-3 px-4 py-2 text-left text-sm hover:bg-peach-soft ${current ? "bg-peach" : ""}`}
+                >
+                  <Avatar name={n} role={r} size={26} />
+                  <span className="flex-1">
+                    <span className="block font-bold">{PERSONAS[r].title}</span>
+                    <span className="text-xs text-charcoal/50">{n}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ export type Role =
   | "Mobilisation"
   | "Leadership";
 
+export type Level = "Senior" | "Junior";
 export type GateNo = 1 | 2 | 3 | 4;
 export type GateState = "not_reached" | "waiting" | "cleared" | "rejected";
 export type Gate4Outcome = "accept" | "hold" | "reject";
@@ -23,6 +24,8 @@ export interface Contact {
   role: string;
   phone: string;
   email: string;
+  tier?: string; // client portal: Decision-maker / Manager / Coordinator
+  city?: string;
 }
 
 export interface Client {
@@ -68,6 +71,28 @@ export interface Gate {
   followUpDate?: string;
   override?: boolean;
   reopened?: boolean;
+  decidedLevel?: Level;
+  reviewedBy?: string; // Senior endorsed a Junior's decision
+  reviewedAt?: string;
+}
+
+/** Client-portal sizing: answers + calculated and (maybe) client-edited footfall. */
+export interface Sizing {
+  values: Record<string, number>;
+  dailyCalc: number;
+  monthlyCalc: number;
+  daily: number;
+  monthly: number;
+  edited: boolean;
+}
+
+/** Client-submitted lead waits for a Senior BD to accept it into the pipeline. */
+export interface Intake {
+  status: "pending" | "accepted" | "rejected";
+  submittedAt: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  note?: string;
 }
 
 export interface Viability {
@@ -138,6 +163,9 @@ export interface Deal {
   zone: string;
   city: string;
   leadSource: string;
+  locations?: string[]; // client portal: office cities in scope
+  sizing?: Sizing;
+  intake?: Intake;
   currentStage: number; // 1–14 (6 = readiness phase covering stages 6 & 7)
   status: DealStatus;
   sites: Site[];

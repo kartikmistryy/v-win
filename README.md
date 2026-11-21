@@ -33,6 +33,12 @@ Use the **role switcher** (top-right) to act as each function. Buttons only show
 11. Handover: Mobilisation + Operations sign (not Live yet) → **Finance** signs → **Live** 🎉
 12. **Leadership** → open VW-2026-0004 → override Gate 1 with a reason (Override badge).
 
+### Client portal + Senior/Junior (added)
+
+- **`/client`** — public 3-step form: pick company (12 fictional, GSTINs + offices auto-filled) → locations + 3 contacts (each tied to a city) → channel / sub-channel sizing questions → footfall estimate (accept or edit) → submit. Lead lands in **Cold** as *pending review*.
+- Role switcher has **Senior** (approve + review) and **Junior** (approve only) for every function. Senior BD accepts/rejects client leads; a Senior can **endorse** or **re-open** any gate decision a Junior made (re-open allowed until Legal starts).
+- Sizing questions and formulas: `src/lib/sizing.ts` (placeholders for Vendiman to confirm).
+
 ## Structure
 
 ```
